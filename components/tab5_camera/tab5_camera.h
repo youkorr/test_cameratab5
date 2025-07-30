@@ -3,8 +3,11 @@
 #include "esphome/core/component.h"
 #include "esphome/components/i2c/i2c.h"
 #include "esphome/core/gpio.h"
+
+#ifdef USE_ESP32
 #include "driver/ledc.h"
 #include "esp_err.h"
+#endif
 
 namespace esphome {
 namespace tab5_camera {
@@ -39,7 +42,9 @@ class Tab5Camera : public Component, public i2c::I2CDevice {
   uint8_t framerate_{15};
   GPIOPin *reset_pin_{nullptr};
 
+#ifdef USE_ESP32
   esp_err_t init_camera_clock();
+#endif
   bool camera_initialized_{false};
 };
 
