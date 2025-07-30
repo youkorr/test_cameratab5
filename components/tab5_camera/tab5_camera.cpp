@@ -1,5 +1,6 @@
 #include "tab5_camera.h"
 #include "esphome/core/log.h"
+#include "esphome/core/hal.h"
 
 namespace esphome {
 namespace tab5_camera {
@@ -12,10 +13,12 @@ void Tab5Camera::setup() {
   // Initialiser le pin de reset si configuré
   if (this->reset_pin_ != nullptr) {
     this->reset_pin_->setup();
+    // Reset pulse
     this->reset_pin_->digital_write(false);
-    delay(10);
+    // Les delayMicroseconds sont acceptés pour de courtes durées
+    delayMicroseconds(10000);  // 10ms en microseconds
     this->reset_pin_->digital_write(true);
-    delay(10);
+    delayMicroseconds(10000);  // 10ms en microseconds
   }
   
 #ifdef USE_ESP32
