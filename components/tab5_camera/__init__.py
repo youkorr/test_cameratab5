@@ -96,6 +96,4 @@ async def to_code(config):
         reset_pin = await cg.gpio_pin_expression(config[CONF_RESET_PIN])
         cg.add(var.set_reset_pin(reset_pin))
 
-    # Ajouter les includes nécessaires pour LEDC
-    cg.add_library("driver/ledc.h", None)
-    cg.add_library("esp_err.h", None)
+    # Les includes LEDC sont gérés dans le fichier .h/.cpp
