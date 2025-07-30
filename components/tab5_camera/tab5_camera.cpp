@@ -18,6 +18,7 @@ void Tab5Camera::setup() {
     delay(10);
   }
   
+#ifdef USE_ESP32
   // Initialiser l'horloge de la caméra
   esp_err_t err = this->init_camera_clock();
   if (err != ESP_OK) {
@@ -25,6 +26,9 @@ void Tab5Camera::setup() {
     this->mark_failed();
     return;
   }
+#else
+  ESP_LOGW(TAG, "Camera clock initialization skipped (not on ESP32)");
+#endif
   
   ESP_LOGCONFIG(TAG, "Tab5 Camera initialized successfully");
   ESP_LOGCONFIG(TAG, "  Name: %s", this->name_.c_str());
@@ -43,6 +47,7 @@ void Tab5Camera::loop() {
   // Pour l'instant, juste maintenir l'horloge active
 }
 
+#ifdef USE_ESP32
 esp_err_t Tab5Camera::init_camera_clock() {
   // Configuration du timer LEDC
   ledc_timer_config_t timer_conf = {};
@@ -79,6 +84,7 @@ esp_err_t Tab5Camera::init_camera_clock() {
   ESP_LOGI(TAG, "Camera clock initialized on pin %d at %d Hz", this->clock_pin_, this->clock_freq_);
   return ESP_OK;
 }
+#endif
 
 }  // namespace tab5_camera
 }  // namespace esphome
