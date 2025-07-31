@@ -8,10 +8,7 @@ namespace tab5_camera {
 static const char *const TAG = "tab5_camera";
 
 
-std::string Tab5Camera::get_stream_url() {
-  // Retourne l'URL du stream (sera utilisé par le serveur web)
-  return "http://" + WiFi.localIP().toString().c_str() + ":8080";
-}
+
 
 void Tab5Camera::setup() {
   ESP_LOGCONFIG(TAG, "Setting up Tab5 Camera...");
