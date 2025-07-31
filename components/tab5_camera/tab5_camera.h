@@ -16,8 +16,8 @@ namespace tab5_camera {
 static const char *const TAG = "tab5_camera";
 
 // Registres SC2356 (exemples typiques)
-static const uint8_t SC2356_REG_CHIP_ID_H = 0x3107;
-static const uint8_t SC2356_REG_CHIP_ID_L = 0x3108;
+static const uint16_t SC2356_REG_CHIP_ID_H = 0x3107;
+static const uint16_t SC2356_REG_CHIP_ID_L = 0x3108;
 static const uint8_t SC2356_CHIP_ID_H = 0x23;
 static const uint8_t SC2356_CHIP_ID_L = 0x56;
 
@@ -47,8 +47,11 @@ class Tab5Camera : public Component, public i2c::I2CDevice {
 
   // Méthodes publiques pour l'utilisation
   bool is_ready() { return this->is_ready_; }
+  
+#ifdef USE_ESP32_P4
   camera_fb_t *get_frame();
   void return_frame(camera_fb_t *fb);
+#endif
 
  protected:
   std::string name_;
@@ -71,8 +74,11 @@ class Tab5Camera : public Component, public i2c::I2CDevice {
   bool setup_clock_();
   bool detect_sc2356_();
   bool configure_sc2356_();
+  
+#ifdef USE_ESP32_P4
   framesize_t get_framesize_();
   pixformat_t get_pixformat_();
+#endif
   
 #ifdef USE_ESP32_P4
   camera_config_t camera_config_;
