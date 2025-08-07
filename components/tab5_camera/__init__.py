@@ -72,7 +72,7 @@ base_schema = cv.Schema(
         cv.Optional(CONF_EXTERNAL_CLOCK_PIN, default=0): cv.int_range(min=0, max=255),
         cv.Optional(CONF_FREQUENCY, default=24000000): cv.positive_int,
         cv.Optional(CONF_RESET_PIN): pins.gpio_output_pin_schema,
-        cv.Optional(CONF_SENSOR_ADDRESS, default=0x43): cv.i2c_address,
+        cv.Optional(CONF_SENSOR_ADDRESS, default=0x36): cv.i2c_address,
         # Nouveaux paramètres
         cv.Optional(CONF_RESOLUTION, default="VGA"): validate_resolution,
         cv.Optional(CONF_PIXEL_FORMAT, default="RGB565"): cv.one_of(*PIXEL_FORMATS.keys(), upper=True),
@@ -91,7 +91,7 @@ if HAS_LVGL:
 CONFIG_SCHEMA = cv.All(
     base_schema
     .extend(cv.COMPONENT_SCHEMA)
-    .extend(i2c.i2c_device_schema(0x43))
+    .extend(i2c.i2c_device_schema(0x36))
 )
 
 async def to_code(config):
