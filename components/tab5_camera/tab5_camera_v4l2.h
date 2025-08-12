@@ -156,4 +156,4 @@ class Tab5Camera : public Component, public i2c::I2CDevice {
 }  // namespace tab5_camera
 }  // namespace esphome
 
-#endif  // USE_ESP32
+
