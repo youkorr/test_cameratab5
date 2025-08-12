@@ -30,7 +30,7 @@ CONFIG_SCHEMA = cv.All(
         cv.Optional(CONF_RESOLUTION, default="HD"): validate_resolution,
     })
     .extend(cv.COMPONENT_SCHEMA)
-    .extend(i2c.i2c_device_schema(0x43))  # Adresse par défaut
+    .extend(i2c.i2c_device_schema(0x43))  # Adresse par défaut du capteur caméra
 )
 
 async def to_code(config):
