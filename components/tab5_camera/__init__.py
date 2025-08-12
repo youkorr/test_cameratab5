@@ -5,7 +5,7 @@ from esphome.const import CONF_ID, CONF_NAME
 
 CODEOWNERS = ["@youkorr"]
 DEPENDENCIES = ["i2c"]
-# COMPLETELY REMOVED: AUTO_LOAD = ["bsp"] 
+# Remove AUTO_LOAD = ["bsp"] - not needed
 
 tab5_camera_ns = cg.esphome_ns.namespace("tab5_camera")
 Tab5Camera = tab5_camera_ns.class_("Tab5Camera", cg.Component, i2c.I2CDevice)
@@ -30,7 +30,7 @@ CONFIG_SCHEMA = cv.All(
         cv.Optional(CONF_RESOLUTION, default="HD"): validate_resolution,
     })
     .extend(cv.COMPONENT_SCHEMA)
-    .extend(i2c.i2c_device_schema(0x43))
+    .extend(i2c.i2c_device_schema(0x43))  # Adresse par défaut du capteur caméra
 )
 
 async def to_code(config):
@@ -45,10 +45,16 @@ async def to_code(config):
     width, height = CAMERA_RESOLUTIONS[resolution_str]
     cg.add(var.set_resolution(width, height))
     
-    # Ajouter les définitions nécessaires pour ESP32-P4
+    # Ajouter les définitions nécessaires
     cg.add_define("USE_ESP32")
     cg.add_define("CONFIG_IDF_TARGET_ESP32P4")
-    cg.add_define("CONFIG_VIDEO_ENABLE")
     
-    # Add build flags without BSP dependency
-    cg.add_build_flag("-DCONFIG_VIDEO_MAX_PROCESSING_TASK_COUNT=1")
+    # Add build flags for ESP32-P4 and BSP support
+    cg.add_build_flag("-DCONFIG_BSP_ERROR_CHECK")
+    cg.add_build_flag("-DCONFIG_VIDEO_ENABLE")
+    
+    # Include necessary ESP-IDF components
+    cg.add_platformio_option("lib_deps", "esp-bsp")
+    
+    # Add include paths if needed
+    cg.add_build_flag("-I$PROJECT_DIR/components")
