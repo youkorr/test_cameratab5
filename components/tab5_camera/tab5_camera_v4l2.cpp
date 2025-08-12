@@ -377,4 +377,4 @@ float Tab5Camera::get_setup_priority() const {
   return setup_priority::HARDWARE - 1.0f;
 }
 
-#endif  // USE_ESP32
+//#endif  // USE_ESP32
