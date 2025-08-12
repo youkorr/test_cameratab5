@@ -437,3 +437,67 @@ void Tab5Camera::cleanup_resources_() {
     // Fermer le device
     if (this->camera_->fd >= 0) {
       close(this->camera_->fd);
+    }
+    
+    free(this->camera_);
+    this->camera_ = nullptr;
+  }
+  
+  // Nettoyer l'I2C bus handle si créé manuellement
+  if (this->i2c_bus_handle_) {
+    i2c_del_master_bus(this->i2c_bus_handle_);
+    this->i2c_bus_handle_ = nullptr;
+  }
+  
+  // Nettoyer la queue
+  if (this->control_queue_) {
+    vQueueDelete(this->control_queue_);
+    this->control_queue_ = nullptr;
+  }
+  
+  this->camera_initialized_ = false;
+}
+
+void Tab5Camera::set_error_(const std::string &error) {
+  this->error_state_ = true;
+  this->last_error_ = error;
+  ESP_LOGE(TAG, "Camera error: %s", error.c_str());
+}
+
+void Tab5Camera::clear_error_() {
+  this->error_state_ = false;
+  this->last_error_.clear();
+}
+
+void Tab5Camera::dump_config() {
+  ESP_LOGCONFIG(TAG, "Tab5 Camera (V4L2 API):");
+  ESP_LOGCONFIG(TAG, "  Name: '%s'", this->name_.c_str());
+  ESP_LOGCONFIG(TAG, "  Device Path: %s", DEVICE_PATH);
+  ESP_LOGCONFIG(TAG, "  I2C Address: 0x%02X", this->address_);
+  ESP_LOGCONFIG(TAG, "  Resolution: %dx%d", this->frame_width_, this->frame_height_);
+  
+  if (this->camera_initialized_) {
+    ESP_LOGCONFIG(TAG, "  Camera FD: %d", this->camera_->fd);
+    ESP_LOGCONFIG(TAG, "  Buffer Size: %zu bytes", this->camera_->buffer_size);
+    ESP_LOGCONFIG(TAG, "  Actual Resolution: %dx%d", this->camera_->width, this->camera_->height);
+    ESP_LOGCONFIG(TAG, "  Status: Initialized");
+  } else {
+    ESP_LOGCONFIG(TAG, "  Status: Not initialized");
+  }
+  
+  if (this->has_error()) {
+    ESP_LOGCONFIG(TAG, "  Error: %s", this->get_last_error().c_str());
+  }
+}
+
+float Tab5Camera::get_setup_priority() const {
+  return setup_priority::HARDWARE - 1.0f;
+}
+
+}  // namespace tab5_camera
+}  // namespace esphome
+
+}  // namespace tab5_camera
+}  // namespace esphome
+
+#endif  // USE_ESP32
