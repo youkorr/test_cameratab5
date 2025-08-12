@@ -5,12 +5,12 @@ from esphome.const import CONF_ID, CONF_NAME
 
 CODEOWNERS = ["@youkorr"]
 DEPENDENCIES = ["i2c"]
-# Remove AUTO_LOAD = ["bsp"] - not needed
 
 tab5_camera_ns = cg.esphome_ns.namespace("tab5_camera")
 Tab5Camera = tab5_camera_ns.class_("Tab5Camera", cg.Component, i2c.I2CDevice)
 
 CONF_RESOLUTION = "resolution"
+
 CAMERA_RESOLUTIONS = {
     "HD": (1280, 720),     # Résolution native Tab5
     "VGA": (640, 480),
@@ -45,16 +45,28 @@ async def to_code(config):
     width, height = CAMERA_RESOLUTIONS[resolution_str]
     cg.add(var.set_resolution(width, height))
     
-    # Ajouter les définitions nécessaires
-    cg.add_define("USE_ESP32")
-    cg.add_define("CONFIG_IDF_TARGET_ESP32P4")
+    # CORRECTION : Définir USE_ESP32 avec une valeur pour éviter l'erreur '&&'
+    cg.add_define("USE_ESP32", "1")  # Ajouter une valeur explicite
+    cg.add_define("CONFIG_IDF_TARGET_ESP32P4", "1")
     
-    # Add build flags for ESP32-P4 and BSP support
+    # Flags de build pour ESP32-P4
     cg.add_build_flag("-DCONFIG_BSP_ERROR_CHECK")
     cg.add_build_flag("-DCONFIG_VIDEO_ENABLE")
+    cg.add_build_flag("-DUSE_ESP32=1")  # Aussi dans les build flags
     
-    # Include necessary ESP-IDF components
-    cg.add_platformio_option("lib_deps", "esp-bsp")
+    # Composants ESP-IDF nécessaires
+    cg.add_platformio_option("lib_deps", [
+        "esp-bsp",
+        "espressif/esp32-camera"
+    ])
+    
+    # Chemins d'inclusion
+    cg.add_build_flag("-I$PROJECT_DIR/components")
+    cg.add_build_flag("-I$PROJECT_DIR/.esphome/build/tab5/config")
+    
+    # Flags spécifiques ESP32-P4
+    cg.add_build_flag("-DCONFIG_ESP32P4_DEFAULT_CPU_FREQ_360=1")
+    cg.add_build_flag("-DCONFIG_ESP32_SPIRAM_SUPPORT=1")
     
     # Add include paths if needed
     cg.add_build_flag("-I$PROJECT_DIR/components")
