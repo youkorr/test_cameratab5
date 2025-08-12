@@ -1,10 +1,11 @@
 ```
 # Camera Tab5 avec API V4L2
 tab5_camera:
-  - id: main_camera
-    name: "Tab5 V4L2 Camera"
-    # Pas besoin d'adresse I2C - gérée par le BSP
-    resolution: "HD"  # 1280x720 comme votre code original
+  id: my_tab5_camera
+  name: My Tab5 Camera
+  address: 67
+  i2c_id: bsp_bus
+  resolution: HD
     
     # Callback pour traiter les frames
     on_frame:
