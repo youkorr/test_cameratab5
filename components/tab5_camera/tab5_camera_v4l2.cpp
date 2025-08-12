@@ -4,7 +4,7 @@
 
 // CORRECTION : S'assurer que USE_ESP32 est défini avec une valeur
 #ifndef USE_ESP32
-//#define USE_ESP32 1
+#define USE_ESP32 1
 #endif
 
 #ifdef USE_ESP32
