@@ -500,4 +500,4 @@ float Tab5Camera::get_setup_priority() const {
 }  // namespace tab5_camera
 }  // namespace esphome
 
-#endif  // USE_ESP32
+
