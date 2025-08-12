@@ -2,7 +2,15 @@
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
 
+// CORRECTION : S'assurer que USE_ESP32 est défini avec une valeur
+#ifndef USE_ESP32
+#define USE_ESP32 1
+#endif
+
 #ifdef USE_ESP32
+
+namespace esphome {
+namespace tab5_camera {
 
 static const char *const TAG = "tab5_camera";
 
@@ -73,9 +81,6 @@ bool Tab5Camera::init_video_system_() {
     .reset_pin = -1,  // Pas de pin de reset
     .pwdn_pin = -1,   // Pas de pin de power down
   };
-  
-  // Utiliser les paramètres I2C d'ESPHome si disponibles
-  // ESPHome configurera automatiquement l'I2C sur GPIO31/32
   
   // Configuration globale
   this->video_config_.csi = &csi_config;
@@ -221,7 +226,6 @@ bool Tab5Camera::open_video_device_(const char* dev_path, tab5_fmt_t format) {
   return true;
 }
 
-// Rest of the implementation remains the same as your original code
 bool Tab5Camera::setup_camera_buffers_() {
   ESP_LOGI(TAG, "Setting up camera buffers...");
   
@@ -294,7 +298,120 @@ bool Tab5Camera::init_ppa_processor_() {
   return true;
 }
 
-// ... (rest of your implementation remains the same)
+bool Tab5Camera::take_snapshot() {
+  if (!this->camera_initialized_) {
+    ESP_LOGE(TAG, "Camera not initialized");
+    return false;
+  }
+
+  // Implementation pour prendre une photo
+  struct v4l2_buffer buf = {};
+  buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  buf.memory = V4L2_MEMORY_MMAP;
+
+  // Démarrer le streaming si pas déjà fait
+  int stream_type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  if (ioctl(this->camera_->fd, VIDIOC_STREAMON, &stream_type) != 0) {
+    ESP_LOGE(TAG, "Failed to start streaming: %s", strerror(errno));
+    return false;
+  }
+
+  // Capturer un frame
+  if (ioctl(this->camera_->fd, VIDIOC_DQBUF, &buf) != 0) {
+    ESP_LOGE(TAG, "Failed to dequeue buffer: %s", strerror(errno));
+    return false;
+  }
+
+  // Traiter le frame via les callbacks
+  this->on_frame_callbacks_.call(this->camera_->buffer[buf.index], buf.bytesused);
+
+  // Remettre le buffer en queue
+  if (ioctl(this->camera_->fd, VIDIOC_QBUF, &buf) != 0) {
+    ESP_LOGE(TAG, "Failed to requeue buffer: %s", strerror(errno));
+  }
+
+  return true;
+}
+
+bool Tab5Camera::start_streaming() {
+  if (!this->camera_initialized_ || this->streaming_active_) {
+    return false;
+  }
+
+  // Créer la tâche de streaming
+  xTaskCreate(streaming_task_, "camera_stream", 4096, this, 5, &this->streaming_task_handle_);
+  this->streaming_active_ = true;
+  
+  ESP_LOGI(TAG, "Camera streaming started");
+  return true;
+}
+
+bool Tab5Camera::stop_streaming() {
+  if (!this->streaming_active_) {
+    return false;
+  }
+
+  // Envoyer signal d'arrêt
+  int control_cmd = TASK_CONTROL_EXIT;
+  xQueueSend(this->control_queue_, &control_cmd, 0);
+  
+  // Attendre l'arrêt de la tâche
+  if (this->streaming_task_handle_) {
+    vTaskDelete(this->streaming_task_handle_);
+    this->streaming_task_handle_ = nullptr;
+  }
+
+  this->streaming_active_ = false;
+  ESP_LOGI(TAG, "Camera streaming stopped");
+  return true;
+}
+
+void Tab5Camera::streaming_task_(void *parameter) {
+  Tab5Camera *camera = static_cast<Tab5Camera*>(parameter);
+  camera->streaming_loop_();
+}
+
+void Tab5Camera::streaming_loop_() {
+  ESP_LOGI(TAG, "Starting streaming loop");
+  
+  // Démarrer le streaming V4L2
+  int stream_type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  if (ioctl(this->camera_->fd, VIDIOC_STREAMON, &stream_type) != 0) {
+    ESP_LOGE(TAG, "Failed to start streaming: %s", strerror(errno));
+    return;
+  }
+
+  struct v4l2_buffer buf = {};
+  int control_cmd;
+
+  while (this->streaming_active_) {
+    // Vérifier les commandes de contrôle
+    if (xQueueReceive(this->control_queue_, &control_cmd, 0) == pdTRUE) {
+      if (control_cmd == TASK_CONTROL_EXIT) {
+        break;
+      }
+    }
+
+    // Capturer un frame
+    buf = {};
+    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buf.memory = V4L2_MEMORY_MMAP;
+
+    if (ioctl(this->camera_->fd, VIDIOC_DQBUF, &buf) == 0) {
+      // Traiter le frame
+      this->on_frame_callbacks_.call(this->camera_->buffer[buf.index], buf.bytesused);
+      
+      // Remettre le buffer en queue
+      ioctl(this->camera_->fd, VIDIOC_QBUF, &buf);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(33)); // ~30 FPS
+  }
+
+  // Arrêter le streaming
+  ioctl(this->camera_->fd, VIDIOC_STREAMOFF, &stream_type);
+  ESP_LOGI(TAG, "Streaming loop ended");
+}
 
 void Tab5Camera::cleanup_resources_() {
   // Arrêter le streaming
@@ -320,63 +437,3 @@ void Tab5Camera::cleanup_resources_() {
     // Fermer le device
     if (this->camera_->fd >= 0) {
       close(this->camera_->fd);
-    }
-    
-    free(this->camera_);
-    this->camera_ = nullptr;
-  }
-  
-  // Nettoyer l'I2C bus handle si créé manuellement
-  if (this->i2c_bus_handle_) {
-    i2c_del_master_bus(this->i2c_bus_handle_);
-    this->i2c_bus_handle_ = nullptr;
-  }
-  
-  // Nettoyer la queue
-  if (this->control_queue_) {
-    vQueueDelete(this->control_queue_);
-    this->control_queue_ = nullptr;
-  }
-  
-  this->camera_initialized_ = false;
-}
-
-void Tab5Camera::set_error_(const std::string &error) {
-  this->error_state_ = true;
-  this->last_error_ = error;
-  ESP_LOGE(TAG, "Camera error: %s", error.c_str());
-}
-
-void Tab5Camera::clear_error_() {
-  this->error_state_ = false;
-  this->last_error_.clear();
-}
-
-void Tab5Camera::dump_config() {
-  ESP_LOGCONFIG(TAG, "Tab5 Camera (V4L2 API):");
-  ESP_LOGCONFIG(TAG, "  Name: '%s'", this->name_.c_str());
-  ESP_LOGCONFIG(TAG, "  Device Path: %s", DEVICE_PATH);
-  ESP_LOGCONFIG(TAG, "  I2C Address: 0x%02X", this->address_);
-  ESP_LOGCONFIG(TAG, "  Resolution: %dx%d", this->frame_width_, this->frame_height_);
-  
-  if (this->camera_initialized_) {
-    ESP_LOGCONFIG(TAG, "  Camera FD: %d", this->camera_->fd);
-    ESP_LOGCONFIG(TAG, "  Buffer Size: %zu bytes", this->camera_->buffer_size);
-    ESP_LOGCONFIG(TAG, "  Actual Resolution: %dx%d", this->camera_->width, this->camera_->height);
-    ESP_LOGCONFIG(TAG, "  Status: Initialized");
-  } else {
-    ESP_LOGCONFIG(TAG, "  Status: Not initialized");
-  }
-  
-  if (this->has_error()) {
-    ESP_LOGCONFIG(TAG, "  Error: %s", this->get_last_error().c_str());
-  }
-}
-
-float Tab5Camera::get_setup_priority() const {
-  return setup_priority::HARDWARE - 1.0f;
-}
-
-}  // namespace tab5_camera
-}  // namespace esphome
-//#endif  // USE_ESP32
