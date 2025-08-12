@@ -6,11 +6,19 @@
 
 #ifdef USE_ESP32
 
-// Includes pour l'API V4L2 (comme dans votre code Tab5)
+// ESP32-P4 and system includes
+#include "esp_log.h"
+#include "esp_err.h"
+#include "esp_system.h"
+#include "driver/i2c_master.h"
+
+// Includes pour l'API V4L2
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/errno.h>
+#include <unistd.h>
+#include <string.h>
 #include "linux/videodev2.h"
 #include "esp_video_init.h"
 #include "esp_video_device.h"
@@ -90,6 +98,7 @@ class Tab5Camera : public Component, public i2c::I2CDevice {
  protected:
   // Fonctions internes (adaptées de votre code Tab5)
   bool init_video_system_();
+  bool init_video_system_fallback_();  // Fallback sans BSP
   bool open_video_device_(const char* dev_path, tab5_fmt_t format);
   bool setup_camera_buffers_();
   bool init_ppa_processor_();
@@ -107,6 +116,7 @@ class Tab5Camera : public Component, public i2c::I2CDevice {
   // Configuration V4L2 et PPA
   esp_video_init_config_t video_config_{};
   ppa_client_handle_t ppa_handle_{nullptr};
+  i2c_master_bus_handle_t i2c_bus_handle_{nullptr};  // Pour fallback I2C
   
   // Tâche et contrôles
   TaskHandle_t streaming_task_handle_{nullptr};
