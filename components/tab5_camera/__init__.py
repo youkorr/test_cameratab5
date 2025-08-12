@@ -5,13 +5,12 @@ from esphome.const import CONF_ID, CONF_NAME
 
 CODEOWNERS = ["@youkorr"]
 DEPENDENCIES = ["i2c"]
-AUTO_LOAD = ["bsp"]  # Charger automatiquement le BSP Tab5
+# Remove AUTO_LOAD = ["bsp"] - not needed
 
 tab5_camera_ns = cg.esphome_ns.namespace("tab5_camera")
 Tab5Camera = tab5_camera_ns.class_("Tab5Camera", cg.Component, i2c.I2CDevice)
 
 CONF_RESOLUTION = "resolution"
-
 CAMERA_RESOLUTIONS = {
     "HD": (1280, 720),     # Résolution native Tab5
     "VGA": (640, 480),
@@ -50,6 +49,12 @@ async def to_code(config):
     cg.add_define("USE_ESP32")
     cg.add_define("CONFIG_IDF_TARGET_ESP32P4")
     
-    # Inclure les bibliothèques V4L2 et BSP
-    cg.add_library("esp-bsp", None)
+    # Add build flags for ESP32-P4 and BSP support
     cg.add_build_flag("-DCONFIG_BSP_ERROR_CHECK")
+    cg.add_build_flag("-DCONFIG_VIDEO_ENABLE")
+    
+    # Include necessary ESP-IDF components
+    cg.add_platformio_option("lib_deps", "esp-bsp")
+    
+    # Add include paths if needed
+    cg.add_build_flag("-I$PROJECT_DIR/components")
