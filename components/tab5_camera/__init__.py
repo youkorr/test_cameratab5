@@ -1,62 +1,71 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import i2c, camera
-from esphome.const import (
-    CONF_ID,
-    CONF_RESOLUTION,
-)
+from esphome.components import i2c
+from esphome.const import CONF_ID, CONF_NAME
 
-# --- Dépendances et métadonnées ---
 CODEOWNERS = ["@youkorr"]
-# Le composant dépend des intégrations 'i2c' et 'camera' d'ESPHome
-DEPENDENCIES = ["i2c", "camera"]
-# Le composant n'est compatible qu'avec le framework espidf
-ESP_IDF_REQUIRED = True
+DEPENDENCIES = ["i2c"]
 
-# --- Définition du composant ---
 tab5_camera_ns = cg.esphome_ns.namespace("tab5_camera")
-Tab5Camera = tab5_camera_ns.class_("Tab5Camera", camera.Camera, cg.Component, i2c.I2CDevice)
+Tab5Camera = tab5_camera_ns.class_("Tab5Camera", cg.Component, i2c.I2CDevice)
 
-# --- Configuration ---
+CONF_RESOLUTION = "resolution"
+
 CAMERA_RESOLUTIONS = {
-    "HD": (1280, 720),
+    "HD": (1280, 720),     # Résolution native Tab5
     "VGA": (640, 480),
     "QVGA": (320, 240),
 }
 
-validate_resolution = cv.one_of(*CAMERA_RESOLUTIONS, upper=True)
+def validate_resolution(value):
+    if isinstance(value, str):
+        value = cv.one_of(*CAMERA_RESOLUTIONS.keys(), upper=True)(value)
+        return value
+    return cv.invalid("Resolution must be one of: {}".format(", ".join(CAMERA_RESOLUTIONS.keys())))
 
-# Le schéma de configuration hérite de celui de la caméra de base
-# pour inclure automatiquement les options communes (nom, id, etc.)
-CONFIG_SCHEMA = camera.CAMERA_SCHEMA.extend({
-    cv.GenerateID(): cv.declare_id(Tab5Camera),
-    cv.Optional(CONF_RESOLUTION, default="HD"): validate_resolution,
-}).extend(cv.COMPONENT_SCHEMA).extend(i2c.i2c_device_schema(0x43))
-
+CONFIG_SCHEMA = cv.All(
+    cv.Schema({
+        cv.GenerateID(): cv.declare_id(Tab5Camera),
+        cv.Optional(CONF_NAME, default="Tab5 Camera"): cv.string,
+        cv.Optional(CONF_RESOLUTION, default="HD"): validate_resolution,
+    })
+    .extend(cv.COMPONENT_SCHEMA)
+    .extend(i2c.i2c_device_schema(0x43))  # Adresse par défaut du capteur caméra
+)
 
 async def to_code(config):
-    """Génère le code C++ correspondant à la configuration YAML."""
-    # Crée une nouvelle variable C++ pour notre caméra
     var = cg.new_Pvariable(config[CONF_ID])
-    
-    # Enregistre le composant auprès des systèmes de base d'ESPHome
     await cg.register_component(var, config)
     await i2c.register_i2c_device(var, config)
-    await camera.register_camera(var, config)
-
-    # Ajoute une définition unique pour pouvoir utiliser des #ifdef dans notre code C++
-    cg.add_define("USE_TAB5_CAMERA")
-
-    # Ajoute les bibliothèques nécessaires à la compilation.
-    # 'espressif/esp32-camera' est la bibliothèque standard pour les caméras sur ESP32.
-    # La bibliothèque 'esp-bsp' n'est pas ajoutée ici car le framework ESP-IDF
-    # pour la carte P4 devrait déjà inclure le support matériel nécessaire.
-    # L'ajouter manuellement peut créer des conflits.
-    cg.add_library("espressif/esp32-camera", "2.0.4")
-
-    # Il n'est PAS nécessaire d'ajouter manuellement des defines comme USE_ESP32
-    # ou des build flags. Le framework s'en charge en fonction de la carte
-    # sélectionnée dans votre fichier YAML (board: esp32-p4-evboard).
-    # Forcer ces valeurs est la source principale de vos erreurs.
+    
+    cg.add(var.set_name(config[CONF_NAME]))
+    
+    # Configuration résolution
+    resolution_str = config[CONF_RESOLUTION]
+    width, height = CAMERA_RESOLUTIONS[resolution_str]
+    cg.add(var.set_resolution(width, height))
+    
+    # CORRECTION : Définir USE_ESP32 avec une valeur pour éviter l'erreur '&&'
+    cg.add_define("USE_ESP32", "1")  # Ajouter une valeur explicite
+    cg.add_define("CONFIG_IDF_TARGET_ESP32P4", "1")
+    
+    # Flags de build pour ESP32-P4
+    cg.add_build_flag("-DCONFIG_BSP_ERROR_CHECK")
+    cg.add_build_flag("-DCONFIG_VIDEO_ENABLE")
+    cg.add_build_flag("-DUSE_ESP32=1")  # Aussi dans les build flags
+    
+    # Composants ESP-IDF nécessaires
+    cg.add_platformio_option("lib_deps", [
+        "esp-bsp",
+        "espressif/esp32-camera"
+    ])
+    
+    # Chemins d'inclusion
+    cg.add_build_flag("-I$PROJECT_DIR/components")
+    cg.add_build_flag("-I$PROJECT_DIR/.esphome/build/tab5/config")
+    
+    # Flags spécifiques ESP32-P4
+    cg.add_build_flag("-DCONFIG_ESP32P4_DEFAULT_CPU_FREQ_360=1")
+    cg.add_build_flag("-DCONFIG_ESP32_SPIRAM_SUPPORT=1")
 
 
