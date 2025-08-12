@@ -4,6 +4,11 @@
 #include "esphome/core/gpio.h"
 #include "esphome/components/i2c/i2c.h"
 
+// CORRECTION : S'assurer que USE_ESP32 est défini avec une valeur
+#ifndef USE_ESP32
+#define USE_ESP32 1
+#endif
+
 #ifdef USE_ESP32
 
 // ESP32-P4 and system includes
@@ -19,10 +24,15 @@
 #include <sys/errno.h>
 #include <unistd.h>
 #include <string.h>
+
+// V4L2 headers - utiliser les headers ESP32-P4
+extern "C" {
 #include "linux/videodev2.h"
 #include "esp_video_init.h"
 #include "esp_video_device.h"
 #include "driver/ppa.h"
+}
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -146,4 +156,4 @@ class Tab5Camera : public Component, public i2c::I2CDevice {
 }  // namespace tab5_camera
 }  // namespace esphome
 
-//#endif  // USE_ESP32
+#endif  // USE_ESP32
