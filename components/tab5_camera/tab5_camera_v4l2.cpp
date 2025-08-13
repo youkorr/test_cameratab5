@@ -2,19 +2,18 @@
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
 
-// CORRECTION : S'assurer que USE_ESP32 est défini avec une valeur
-#ifndef USE_ESP32
-#define USE_ESP32 1
+// Définition spécifique pour ce composant
+#ifndef TAB5_CAMERA_USE_ESP32
+#define TAB5_CAMERA_USE_ESP32 1
 #endif
 
-#ifdef USE_ESP32
+#ifdef TAB5_CAMERA_USE_ESP32
 
 namespace esphome {
 namespace tab5_camera {
 
 static const char *const TAG = "tab5_camera";
 
-// Constantes de contrôle de tâche (de votre code)
 #define TASK_CONTROL_PAUSE  0
 #define TASK_CONTROL_RESUME 1
 #define TASK_CONTROL_EXIT   2
@@ -28,7 +27,6 @@ void Tab5Camera::setup() {
   
   this->clear_error_();
   
-  // Créer la queue de contrôle (comme dans votre code)
   this->control_queue_ = xQueueCreate(10, sizeof(int));
   if (!this->control_queue_) {
     this->set_error_("Failed to create control queue");
@@ -36,28 +34,24 @@ void Tab5Camera::setup() {
     return;
   }
   
-  // Initialiser le système vidéo avec ESPHome I2C
   if (!this->init_video_system_()) {
     this->set_error_("Video system initialization failed");
     this->mark_failed();
     return;
   }
   
-  // Ouvrir le device vidéo
   if (!this->open_video_device_(DEVICE_PATH, TAB5_VIDEO_FMT_RGB565)) {
     this->set_error_("Failed to open video device");
     this->mark_failed();
     return;
   }
   
-  // Configurer les buffers
   if (!this->setup_camera_buffers_()) {
     this->set_error_("Failed to setup camera buffers");
     this->mark_failed();
     return;
   }
   
-  // Initialiser le PPA (Pixel Processing Accelerator)
   if (!this->init_ppa_processor_()) {
     this->set_error_("Failed to initialize PPA processor");
     this->mark_failed();
@@ -71,39 +65,6 @@ void Tab5Camera::setup() {
 bool Tab5Camera::init_video_system_() {
   ESP_LOGI(TAG, "Initializing Tab5 video system...");
   
-  // Configuration CSI utilisant l'I2C d'ESPHome
-  static esp_video_init_csi_config_t csi_config = {
-    .sccb_config = {
-      .init_sccb = true,  // Laisser le système initialiser l'I2C
-      .i2c_handle = nullptr,  // Sera configuré automatiquement
-      .freq = 400000,         // Même fréquence que votre config ESPHome
-    },
-    .reset_pin = -1,  // Pas de pin de reset
-    .pwdn_pin = -1,   // Pas de pin de power down
-  };
-  
-  // Configuration globale
-  this->video_config_.csi = &csi_config;
-  this->video_config_.dvp = nullptr;
-  this->video_config_.jpeg = nullptr;
-  
-  // Initialiser le système vidéo ESP32-P4
-  esp_err_t ret = esp_video_init(&this->video_config_);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "esp_video_init failed: %s", esp_err_to_name(ret));
-    
-    // Try alternative initialization without BSP dependency
-    return this->init_video_system_fallback_();
-  }
-  
-  ESP_LOGI(TAG, "Video system initialized successfully");
-  return true;
-}
-
-bool Tab5Camera::init_video_system_fallback_() {
-  ESP_LOGI(TAG, "Trying fallback video system initialization...");
-  
-  // Configuration CSI simplifiée
   static esp_video_init_csi_config_t csi_config = {
     .sccb_config = {
       .init_sccb = true,
@@ -114,11 +75,37 @@ bool Tab5Camera::init_video_system_fallback_() {
     .pwdn_pin = -1,
   };
   
-  // Créer un handle I2C manuel si nécessaire
+  this->video_config_.csi = &csi_config;
+  this->video_config_.dvp = nullptr;
+  this->video_config_.jpeg = nullptr;
+  
+  esp_err_t ret = esp_video_init(&this->video_config_);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "esp_video_init failed: %s", esp_err_to_name(ret));
+    return this->init_video_system_fallback_();
+  }
+  
+  ESP_LOGI(TAG, "Video system initialized successfully");
+  return true;
+}
+
+bool Tab5Camera::init_video_system_fallback_() {
+  ESP_LOGI(TAG, "Trying fallback video system initialization...");
+  
+  static esp_video_init_csi_config_t csi_config = {
+    .sccb_config = {
+      .init_sccb = true,
+      .i2c_handle = nullptr,
+      .freq = 400000,
+    },
+    .reset_pin = -1,
+    .pwdn_pin = -1,
+  };
+  
   i2c_master_bus_config_t bus_config = {
     .i2c_port = I2C_NUM_0,
-    .sda_io_num = GPIO_NUM_31,  // Même que votre config ESPHome
-    .scl_io_num = GPIO_NUM_32,  // Même que votre config ESPHome
+    .sda_io_num = GPIO_NUM_31,
+    .scl_io_num = GPIO_NUM_32,
     .clk_source = I2C_CLK_SRC_DEFAULT,
     .glitch_ignore_cnt = 7,
     .intr_priority = 0,
@@ -135,7 +122,7 @@ bool Tab5Camera::init_video_system_fallback_() {
   }
   
   csi_config.sccb_config.i2c_handle = this->i2c_bus_handle_;
-  csi_config.sccb_config.init_sccb = false;  // Nous gérons l'I2C nous-mêmes
+  csi_config.sccb_config.init_sccb = false;
   
   this->video_config_.csi = &csi_config;
   this->video_config_.dvp = nullptr;
