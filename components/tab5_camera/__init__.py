@@ -12,7 +12,7 @@ Tab5Camera = tab5_camera_ns.class_("Tab5Camera", cg.Component, i2c.I2CDevice)
 CONF_RESOLUTION = "resolution"
 
 CAMERA_RESOLUTIONS = {
-    "HD": (1280, 720),     # Résolution native Tab5
+    "HD": (1280, 720),
     "VGA": (640, 480),
     "QVGA": (320, 240),
 }
@@ -30,7 +30,7 @@ CONFIG_SCHEMA = cv.All(
         cv.Optional(CONF_RESOLUTION, default="HD"): validate_resolution,
     })
     .extend(cv.COMPONENT_SCHEMA)
-    .extend(i2c.i2c_device_schema(0x43))  # Adresse par défaut du capteur caméra
+    .extend(i2c.i2c_device_schema(0x43))
 )
 
 async def to_code(config):
@@ -40,32 +40,21 @@ async def to_code(config):
     
     cg.add(var.set_name(config[CONF_NAME]))
     
-    # Configuration résolution
     resolution_str = config[CONF_RESOLUTION]
     width, height = CAMERA_RESOLUTIONS[resolution_str]
     cg.add(var.set_resolution(width, height))
     
-    # CORRECTION : Définir USE_ESP32 avec une valeur pour éviter l'erreur '&&'
-    cg.add_define("USE_ESP32", "1")  # Ajouter une valeur explicite
-    cg.add_define("CONFIG_IDF_TARGET_ESP32P4", "1")
+    # Modifier les définitions pour éviter les conflits
+    cg.add_define("USE_TAB5_CAMERA")
+    cg.add_define("TAB5_CAMERA_USE_ESP32", 1)
     
-    # Flags de build pour ESP32-P4
+    # Flags de build
     cg.add_build_flag("-DCONFIG_BSP_ERROR_CHECK")
     cg.add_build_flag("-DCONFIG_VIDEO_ENABLE")
-    cg.add_build_flag("-DUSE_ESP32=1")  # Aussi dans les build flags
     
     # Composants ESP-IDF nécessaires
     cg.add_platformio_option("lib_deps", [
-        "esp-bsp",
         "espressif/esp32-camera"
     ])
-    
-    # Chemins d'inclusion
-    cg.add_build_flag("-I$PROJECT_DIR/components")
-    cg.add_build_flag("-I$PROJECT_DIR/.esphome/build/tab5/config")
-    
-    # Flags spécifiques ESP32-P4
-    cg.add_build_flag("-DCONFIG_ESP32P4_DEFAULT_CPU_FREQ_360=1")
-    cg.add_build_flag("-DCONFIG_ESP32_SPIRAM_SUPPORT=1")
 
 
