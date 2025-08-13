@@ -19,10 +19,12 @@
 // Includes pour l'API V4L2
 #include <fcntl.h>
 #include <sys/ioctl.h>
-#include "esp_heap_caps.h"
 #include <sys/errno.h>
 #include <unistd.h>
 #include <string.h>
+
+// Remplacer sys/mman.h par une implémentation ESP32
+#include "esp_heap_caps.h"
 
 // V4L2 headers
 extern "C" {
