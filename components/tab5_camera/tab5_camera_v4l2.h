@@ -19,7 +19,7 @@
 // Includes pour l'API V4L2
 #include <fcntl.h>
 #include <sys/ioctl.h>
-#include <sys/mman.h>
+#include "esp_heap_caps.h"
 #include <sys/errno.h>
 #include <unistd.h>
 #include <string.h>
