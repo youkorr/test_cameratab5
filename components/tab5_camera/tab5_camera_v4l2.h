@@ -23,8 +23,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 
-// Remplacer l'include V4L2 par les définitions ESP32
-// #include <sys/mman.h>  // <- Cette ligne causait l'erreur
+
 
 namespace esphome {
 namespace tab5_camera {
