@@ -19,14 +19,13 @@
 #include "bsp/esp-bsp.h"
 #include "esp_video_init.h"
 #include "esp_video_device.h"
-#include "components/tab5_camera/linux/videodev2.h"
-
+#include "linux/videodev2.h"
 #include "driver/ppa.h"
 
 // Includes système nécessaires pour V4L2
 #include <fcntl.h>
 #include <sys/ioctl.h>
-#include "components/tab5_camera/sys/mman.h"
+#include <sys/mman.h>
 #include <sys/param.h>
 
 #include "freertos/FreeRTOS.h"
