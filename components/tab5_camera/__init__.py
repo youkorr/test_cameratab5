@@ -4,8 +4,7 @@ from esphome.components import i2c
 from esphome.const import CONF_ID, CONF_NAME, CONF_RESOLUTION
 from esphome import pins
 
-# Définir TOUTES les constantes nécessaires localement
-CONF_VERTICAL_FLIP = "vertical_flip"
+# Définir les constantes nécessaires
 CONF_HORIZONTAL_MIRROR = "horizontal_mirror"
 CONF_PIXEL_FORMAT = "pixel_format"
 CONF_CAMERA_RESET_PIN = "camera_reset_pin"
@@ -20,7 +19,7 @@ DEPENDENCIES = ["i2c"]
 tab5_camera_ns = cg.esphome_ns.namespace("tab5_camera")
 Tab5Camera = tab5_camera_ns.class_("Tab5Camera", cg.Component, i2c.I2CDevice)
 
-# Supprimer complètement l'import problématique et utiliser uniquement les constantes locales
+# Formats de pixels
 tab5_pixformat_t = tab5_camera_ns.enum("tab5_pixformat_t")
 PIXEL_FORMATS = {
     "RGB565": tab5_pixformat_t.TAB5_PIXFORMAT_RGB565,
@@ -32,6 +31,7 @@ PIXEL_FORMATS = {
     "RAW10": tab5_pixformat_t.TAB5_PIXFORMAT_RAW10,
 }
 
+# Résolutions
 tab5_framesize_t = tab5_camera_ns.enum("tab5_framesize_t")
 FRAMESIZES = {
     "QVGA": tab5_framesize_t.TAB5_FRAMESIZE_QVGA,
@@ -45,7 +45,6 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_NAME, default="Tab5 Camera"): cv.string,
     cv.Optional(CONF_RESOLUTION, default="HD"): cv.enum(FRAMESIZES),
     cv.Optional(CONF_PIXEL_FORMAT, default="RGB565"): cv.enum(PIXEL_FORMATS),
-    cv.Optional(CONF_VERTICAL_FLIP, default=False): cv.boolean,
     cv.Optional(CONF_HORIZONTAL_MIRROR, default=True): cv.boolean,
     cv.Optional(CONF_CAMERA_RESET_PIN): pins.gpio_output_pin_schema,
     cv.Optional(CONF_JPEG_QUALITY, default=12): cv.int_range(min=1, max=63),
@@ -62,7 +61,6 @@ async def to_code(config):
     cg.add(var.set_name(config[CONF_NAME]))
     cg.add(var.set_resolution(config[CONF_RESOLUTION]))
     cg.add(var.set_pixel_format(config[CONF_PIXEL_FORMAT]))
-    cg.add(var.set_vertical_flip(config[CONF_VERTICAL_FLIP]))
     cg.add(var.set_horizontal_mirror(config[CONF_HORIZONTAL_MIRROR]))
     
     if CONF_CAMERA_RESET_PIN in config:
