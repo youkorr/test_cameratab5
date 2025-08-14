@@ -40,10 +40,9 @@ void Tab5Camera::setup() {
     return;
   }
 
-  // Initialiser le BSP de la caméra Tab5
-  ESP_LOGI(TAG, "Initializing Tab5 camera BSP...");
-  bsp_cam_osc_init();
-
+  // Initialiser la caméra Tab5
+  ESP_LOGI(TAG, "Initializing Tab5 camera...");
+  
   // Initialiser la caméra
   if (!this->init_camera_()) {
     this->set_error_("Failed to initialize camera");
@@ -100,26 +99,28 @@ bool Tab5Camera::configure_camera_() {
 
 camera_config_t Tab5Camera::get_camera_config_() {
   camera_config_t config;
+  memset(&config, 0, sizeof(config));
   
-  // Configuration des pins pour Tab5 - à ajuster selon le schéma réel
+  // Configuration des pins pour Tab5 ESP32-P4
+  // Ces pins doivent correspondre au schéma réel du Tab5
   config.pin_pwdn = -1;  // Pas de pin power down
   config.pin_reset = -1; // Pas de pin reset
-  config.pin_xclk = GPIO_NUM_48;  // Clock pin
-  config.pin_sccb_sda = GPIO_NUM_31;  // I2C SDA (système I2C du Tab5)
-  config.pin_sccb_scl = GPIO_NUM_32;  // I2C SCL (système I2C du Tab5)
+  config.pin_xclk = GPIO_NUM_15;    // Clock pin
+  config.pin_sccb_sda = GPIO_NUM_4;  // I2C SDA
+  config.pin_sccb_scl = GPIO_NUM_5;  // I2C SCL
   
-  // Pins de données (à ajuster selon le schéma du Tab5)
-  config.pin_d7 = GPIO_NUM_7;
-  config.pin_d6 = GPIO_NUM_6;
-  config.pin_d5 = GPIO_NUM_5;
-  config.pin_d4 = GPIO_NUM_4;
-  config.pin_d3 = GPIO_NUM_3;
-  config.pin_d2 = GPIO_NUM_2;
-  config.pin_d1 = GPIO_NUM_1;
-  config.pin_d0 = GPIO_NUM_0;
-  config.pin_vsync = GPIO_NUM_45;
-  config.pin_href = GPIO_NUM_46;
-  config.pin_pclk = GPIO_NUM_47;
+  // Pins de données - à vérifier selon le schéma du Tab5
+  config.pin_d7 = GPIO_NUM_11;
+  config.pin_d6 = GPIO_NUM_12;
+  config.pin_d5 = GPIO_NUM_13;
+  config.pin_d4 = GPIO_NUM_14;
+  config.pin_d3 = GPIO_NUM_16;
+  config.pin_d2 = GPIO_NUM_17;
+  config.pin_d1 = GPIO_NUM_18;
+  config.pin_d0 = GPIO_NUM_19;
+  config.pin_vsync = GPIO_NUM_6;
+  config.pin_href = GPIO_NUM_7;
+  config.pin_pclk = GPIO_NUM_8;
 
   // Configuration XCLK
   config.xclk_freq_hz = 20000000;  // 20MHz
