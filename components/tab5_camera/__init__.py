@@ -4,7 +4,7 @@ from esphome.components import i2c
 from esphome.const import CONF_ID, CONF_NAME, CONF_RESOLUTION
 from esphome import pins
 
-# Définir les constantes nécessaires
+# Définir uniquement les constantes nécessaires
 CONF_HORIZONTAL_MIRROR = "horizontal_mirror"
 CONF_PIXEL_FORMAT = "pixel_format"
 CONF_CAMERA_RESET_PIN = "camera_reset_pin"
