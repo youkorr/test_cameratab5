@@ -17,29 +17,6 @@ static const char *const TAG = "tab5_camera";
 #define TASK_CONTROL_RESUME 1
 #define TASK_CONTROL_EXIT   2
 
-// Memory mapping implementation for ESP32
-static void* esp_mmap(void* addr, size_t length, int prot, int flags, int fd, off_t offset) {
-  (void)addr; (void)prot; (void)flags; (void)fd; (void)offset;
-  void* ptr = heap_caps_malloc(length, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (ptr == nullptr) {
-    ESP_LOGE(TAG, "Failed to allocate memory for buffer");
-    return MAP_FAILED;
-  }
-  return ptr;
-}
-
-static int esp_munmap(void* addr, size_t length) {
-  (void)length;
-  if (addr != MAP_FAILED) {
-    heap_caps_free(addr);
-  }
-  return 0;
-}
-
-#define mmap esp_mmap
-#define munmap esp_munmap
-#define MAP_FAILED ((void*)-1)
-
 Tab5Camera::~Tab5Camera() {
   this->cleanup_resources_();
 }
@@ -48,6 +25,7 @@ void Tab5Camera::setup() {
   ESP_LOGCONFIG(TAG, "Setting up Tab5 Camera...");
   this->clear_error_();
 
+  // Créer les objets de synchronisation
   this->control_queue_ = xQueueCreate(10, sizeof(int));
   if (!this->control_queue_) {
     this->set_error_("Failed to create control queue");
@@ -55,26 +33,26 @@ void Tab5Camera::setup() {
     return;
   }
 
-  if (!this->init_video_system_()) {
-    this->set_error_("Video system initialization failed");
+  this->frame_mutex_ = xSemaphoreCreateMutex();
+  if (!this->frame_mutex_) {
+    this->set_error_("Failed to create frame mutex");
     this->mark_failed();
     return;
   }
 
-  if (!this->open_video_device_(DEVICE_PATH, TAB5_VIDEO_FMT_RGB565)) {
-    this->set_error_("Failed to open video device");
+  // Initialiser le BSP de la caméra Tab5
+  ESP_LOGI(TAG, "Initializing Tab5 camera BSP...");
+  bsp_cam_osc_init();
+
+  // Initialiser la caméra
+  if (!this->init_camera_()) {
+    this->set_error_("Failed to initialize camera");
     this->mark_failed();
     return;
   }
 
-  if (!this->setup_camera_buffers_()) {
-    this->set_error_("Failed to setup camera buffers");
-    this->mark_failed();
-    return;
-  }
-
-  if (!this->init_ppa_processor_()) {
-    this->set_error_("Failed to initialize PPA processor");
+  if (!this->configure_camera_()) {
+    this->set_error_("Failed to configure camera");
     this->mark_failed();
     return;
   }
@@ -83,197 +61,142 @@ void Tab5Camera::setup() {
   ESP_LOGI(TAG, "Tab5 Camera initialized successfully");
 }
 
-bool Tab5Camera::init_video_system_() {
-  ESP_LOGI(TAG, "Initializing video system...");
+bool Tab5Camera::init_camera_() {
+  camera_config_t config = this->get_camera_config_();
 
-  static esp_video_init_csi_config_t csi_config = {
-    .sccb_config = {
-      .init_sccb = true,
-      .i2c_handle = nullptr,
-      .freq = 400000,
-    },
-    .reset_pin = -1,
-    .pwdn_pin = -1,
-  };
-
-  this->video_config_.csi = &csi_config;
-  this->video_config_.dvp = nullptr;
-  this->video_config_.jpeg = nullptr;
-
-  esp_err_t ret = esp_video_init(&this->video_config_);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "esp_video_init failed: %s", esp_err_to_name(ret));
-    return this->init_video_system_fallback_();
-  }
-
-  return true;
-}
-
-bool Tab5Camera::init_video_system_fallback_() {
-  ESP_LOGI(TAG, "Trying fallback initialization...");
-
-  i2c_master_bus_config_t bus_config = {
-    .i2c_port = I2C_NUM_0,
-    .sda_io_num = GPIO_NUM_31,
-    .scl_io_num = GPIO_NUM_32,
-    .clk_source = I2C_CLK_SRC_DEFAULT,
-    .glitch_ignore_cnt = 7,
-    .intr_priority = 0,
-    .trans_queue_depth = 0,
-    .flags = {
-      .enable_internal_pullup = true,
-    }
-  };
-
-  esp_err_t ret = i2c_new_master_bus(&bus_config, &this->i2c_bus_handle_);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to create I2C bus: %s", esp_err_to_name(ret));
-    return false;
-  }
-
-  static esp_video_init_csi_config_t csi_config = {
-    .sccb_config = {
-      .init_sccb = false,
-      .i2c_handle = this->i2c_bus_handle_,
-      .freq = 400000,
-    },
-    .reset_pin = -1,
-    .pwdn_pin = -1,
-  };
-
-  this->video_config_.csi = &csi_config;
-  ret = esp_video_init(&this->video_config_);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Fallback esp_video_init failed: %s", esp_err_to_name(ret));
+  // Initialiser la caméra ESP32
+  esp_err_t err = esp_camera_init(&config);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Camera init failed with error 0x%x: %s", err, esp_err_to_name(err));
     return false;
   }
 
   return true;
 }
 
-bool Tab5Camera::open_video_device_(const char* dev_path, tab5_fmt_t format) {
-  this->camera_ = (tab5_cam_t*)calloc(1, sizeof(tab5_cam_t));
-  if (!this->camera_) {
-    ESP_LOGE(TAG, "Failed to allocate camera structure");
+bool Tab5Camera::configure_camera_() {
+  sensor_t* sensor = esp_camera_sensor_get();
+  if (!sensor) {
+    ESP_LOGE(TAG, "Failed to get camera sensor");
     return false;
   }
 
-  this->camera_->fd = open(dev_path, O_RDONLY);
-  if (this->camera_->fd < 0) {
-    ESP_LOGE(TAG, "Failed to open video device: %s", strerror(errno));
-    return false;
+  // Configurer les paramètres de la caméra
+  sensor->set_pixformat(sensor, this->convert_pixel_format_(this->pixel_format_));
+  sensor->set_framesize(sensor, this->convert_framesize_(this->framesize_));
+  sensor->set_vflip(sensor, this->vertical_flip_);
+  sensor->set_hmirror(sensor, this->horizontal_mirror_);
+  sensor->set_brightness(sensor, this->brightness_);
+  sensor->set_contrast(sensor, this->contrast_);
+  sensor->set_saturation(sensor, this->saturation_);
+
+  if (this->pixel_format_ == TAB5_PIXFORMAT_JPEG) {
+    sensor->set_quality(sensor, this->jpeg_quality_);
   }
 
-  struct v4l2_format fmt = {
-    .type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
-    .fmt = {
-      .pix = {
-        .width = this->frame_width_,
-        .height = this->frame_height_,
-        .pixelformat = format,
-        .field = V4L2_FIELD_NONE,
-      }
-    }
-  };
-
-  if (ioctl(this->camera_->fd, VIDIOC_S_FMT, &fmt) != 0) {
-    ESP_LOGE(TAG, "Failed to set video format: %s", strerror(errno));
-    return false;
-  }
-
-  this->camera_->width = fmt.fmt.pix.width;
-  this->camera_->height = fmt.fmt.pix.height;
-  this->camera_->pixel_format = fmt.fmt.pix.pixelformat;
-
+  ESP_LOGI(TAG, "Camera configured successfully");
   return true;
 }
 
-bool Tab5Camera::setup_camera_buffers_() {
-  struct v4l2_requestbuffers req = {
-    .count = BUFFER_COUNT,
-    .type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
-    .memory = V4L2_MEMORY_MMAP
-  };
+camera_config_t Tab5Camera::get_camera_config_() {
+  camera_config_t config;
+  
+  // Configuration des pins pour Tab5 - à ajuster selon le schéma réel
+  config.pin_pwdn = -1;  // Pas de pin power down
+  config.pin_reset = -1; // Pas de pin reset
+  config.pin_xclk = GPIO_NUM_48;  // Clock pin
+  config.pin_sccb_sda = GPIO_NUM_31;  // I2C SDA (système I2C du Tab5)
+  config.pin_sccb_scl = GPIO_NUM_32;  // I2C SCL (système I2C du Tab5)
+  
+  // Pins de données (à ajuster selon le schéma du Tab5)
+  config.pin_d7 = GPIO_NUM_7;
+  config.pin_d6 = GPIO_NUM_6;
+  config.pin_d5 = GPIO_NUM_5;
+  config.pin_d4 = GPIO_NUM_4;
+  config.pin_d3 = GPIO_NUM_3;
+  config.pin_d2 = GPIO_NUM_2;
+  config.pin_d1 = GPIO_NUM_1;
+  config.pin_d0 = GPIO_NUM_0;
+  config.pin_vsync = GPIO_NUM_45;
+  config.pin_href = GPIO_NUM_46;
+  config.pin_pclk = GPIO_NUM_47;
 
-  if (ioctl(this->camera_->fd, VIDIOC_REQBUFS, &req) != 0) {
-    ESP_LOGE(TAG, "Failed to request buffers: %s", strerror(errno));
-    return false;
-  }
+  // Configuration XCLK
+  config.xclk_freq_hz = 20000000;  // 20MHz
+  config.ledc_timer = LEDC_TIMER_0;
+  config.ledc_channel = LEDC_CHANNEL_0;
 
-  for (size_t i = 0; i < BUFFER_COUNT; i++) {
-    struct v4l2_buffer buf = {
-      .type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
-      .memory = V4L2_MEMORY_MMAP,
-      .index = i
-    };
+  // Format et taille
+  config.pixel_format = this->convert_pixel_format_(this->pixel_format_);
+  config.frame_size = this->convert_framesize_(this->framesize_);
 
-    if (ioctl(this->camera_->fd, VIDIOC_QUERYBUF, &buf) != 0) {
-      ESP_LOGE(TAG, "Failed to query buffer: %s", strerror(errno));
-      return false;
-    }
+  // Configuration des buffers
+  config.jpeg_quality = this->jpeg_quality_;
+  config.fb_count = 2;  // Double buffer
+  config.fb_location = CAMERA_FB_IN_PSRAM;
+  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
 
-    this->camera_->buffer[i] = (uint8_t*)mmap(nullptr, buf.length, 
-                                             PROT_READ | PROT_WRITE,
-                                             MAP_SHARED,
-                                             this->camera_->fd, buf.m.offset);
-    if (this->camera_->buffer[i] == MAP_FAILED) {
-      ESP_LOGE(TAG, "Failed to map buffer");
-      return false;
-    }
-
-    if (ioctl(this->camera_->fd, VIDIOC_QBUF, &buf) != 0) {
-      ESP_LOGE(TAG, "Failed to queue buffer: %s", strerror(errno));
-      return false;
-    }
-
-    this->camera_->buffer_size = buf.length;
-  }
-
-  return true;
+  return config;
 }
 
-bool Tab5Camera::init_ppa_processor_() {
-  ppa_client_config_t ppa_config = {
-    .oper_type = PPA_OPERATION_SRM,
-    .max_pending_trans_num = 1,
-  };
-
-  esp_err_t ret = ppa_register_client(&ppa_config, &this->ppa_handle_);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to register PPA client: %s", esp_err_to_name(ret));
-    return false;
+framesize_t Tab5Camera::convert_framesize_(tab5_framesize_t framesize) {
+  switch (framesize) {
+    case TAB5_FRAMESIZE_96X96: return FRAMESIZE_96X96;
+    case TAB5_FRAMESIZE_QQVGA: return FRAMESIZE_QQVGA;
+    case TAB5_FRAMESIZE_QCIF: return FRAMESIZE_QCIF;
+    case TAB5_FRAMESIZE_HQVGA: return FRAMESIZE_HQVGA;
+    case TAB5_FRAMESIZE_240X240: return FRAMESIZE_240X240;
+    case TAB5_FRAMESIZE_QVGA: return FRAMESIZE_QVGA;
+    case TAB5_FRAMESIZE_CIF: return FRAMESIZE_CIF;
+    case TAB5_FRAMESIZE_HVGA: return FRAMESIZE_HVGA;
+    case TAB5_FRAMESIZE_VGA: return FRAMESIZE_VGA;
+    case TAB5_FRAMESIZE_SVGA: return FRAMESIZE_SVGA;
+    case TAB5_FRAMESIZE_XGA: return FRAMESIZE_XGA;
+    case TAB5_FRAMESIZE_HD: return FRAMESIZE_HD;
+    case TAB5_FRAMESIZE_SXGA: return FRAMESIZE_SXGA;
+    case TAB5_FRAMESIZE_UXGA: return FRAMESIZE_UXGA;
+    default: return FRAMESIZE_VGA;
   }
+}
 
-  return true;
+pixformat_t Tab5Camera::convert_pixel_format_(tab5_pixformat_t format) {
+  switch (format) {
+    case TAB5_PIXFORMAT_RGB565: return PIXFORMAT_RGB565;
+    case TAB5_PIXFORMAT_YUV422: return PIXFORMAT_YUV422;
+    case TAB5_PIXFORMAT_GRAYSCALE: return PIXFORMAT_GRAYSCALE;
+    case TAB5_PIXFORMAT_JPEG: return PIXFORMAT_JPEG;
+    case TAB5_PIXFORMAT_RGB888: return PIXFORMAT_RGB888;
+    case TAB5_PIXFORMAT_RAW: return PIXFORMAT_RAW;
+    default: return PIXFORMAT_JPEG;
+  }
 }
 
 bool Tab5Camera::take_snapshot() {
   if (!this->camera_initialized_) {
+    ESP_LOGE(TAG, "Camera not initialized");
     return false;
   }
 
-  struct v4l2_buffer buf = {
-    .type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
-    .memory = V4L2_MEMORY_MMAP
-  };
-
-  int stream_type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-  if (ioctl(this->camera_->fd, VIDIOC_STREAMON, &stream_type) != 0) {
-    ESP_LOGE(TAG, "Failed to start streaming: %s", strerror(errno));
+  camera_fb_t* fb = esp_camera_fb_get();
+  if (!fb) {
+    ESP_LOGE(TAG, "Camera capture failed");
     return false;
   }
 
-  if (ioctl(this->camera_->fd, VIDIOC_DQBUF, &buf) != 0) {
-    ESP_LOGE(TAG, "Failed to dequeue buffer: %s", strerror(errno));
-    return false;
+  // Protéger l'accès au buffer de frame
+  if (xSemaphoreTake(this->frame_mutex_, pdMS_TO_TICKS(100)) == pdTRUE) {
+    this->current_frame_buffer_ = fb->buf;
+    this->current_frame_size_ = fb->len;
+    
+    // Appeler les callbacks
+    this->on_frame_callbacks_.call(fb->buf, fb->len);
+    
+    xSemaphoreGive(this->frame_mutex_);
   }
 
-  this->on_frame_callbacks_.call(this->camera_->buffer[buf.index], buf.bytesused);
-
-  if (ioctl(this->camera_->fd, VIDIOC_QBUF, &buf) != 0) {
-    ESP_LOGE(TAG, "Failed to requeue buffer: %s", strerror(errno));
-  }
-
+  // Libérer le frame buffer
+  esp_camera_fb_return(fb);
+  
   return true;
 }
 
@@ -282,8 +205,24 @@ bool Tab5Camera::start_streaming() {
     return false;
   }
 
-  xTaskCreate(streaming_task_, "camera_stream", 4096, this, 5, &this->streaming_task_handle_);
+  ESP_LOGI(TAG, "Starting camera streaming...");
+  
+  BaseType_t result = xTaskCreate(
+    streaming_task_,
+    "tab5_camera_stream",
+    STREAM_TASK_STACK_SIZE,
+    this,
+    STREAM_TASK_PRIORITY,
+    &this->streaming_task_handle_
+  );
+  
+  if (result != pdPASS) {
+    ESP_LOGE(TAG, "Failed to create streaming task");
+    return false;
+  }
+
   this->streaming_active_ = true;
+  ESP_LOGI(TAG, "Camera streaming started");
   return true;
 }
 
@@ -292,52 +231,68 @@ bool Tab5Camera::stop_streaming() {
     return false;
   }
 
+  ESP_LOGI(TAG, "Stopping camera streaming...");
+  
   int control_cmd = TASK_CONTROL_EXIT;
-  xQueueSend(this->control_queue_, &control_cmd, 0);
+  xQueueSend(this->control_queue_, &control_cmd, portMAX_DELAY);
 
+  // Attendre que la tâche se termine
   if (this->streaming_task_handle_) {
     vTaskDelete(this->streaming_task_handle_);
     this->streaming_task_handle_ = nullptr;
   }
 
   this->streaming_active_ = false;
+  ESP_LOGI(TAG, "Camera streaming stopped");
   return true;
 }
 
 void Tab5Camera::streaming_task_(void *parameter) {
   Tab5Camera *camera = static_cast<Tab5Camera*>(parameter);
   camera->streaming_loop_();
+  vTaskDelete(nullptr);
 }
 
 void Tab5Camera::streaming_loop_() {
-  int stream_type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-  if (ioctl(this->camera_->fd, VIDIOC_STREAMON, &stream_type) != 0) {
-    ESP_LOGE(TAG, "Failed to start streaming: %s", strerror(errno));
-    return;
-  }
-
-  struct v4l2_buffer buf = {};
+  ESP_LOGI(TAG, "Camera streaming loop started");
+  
   int control_cmd;
-
+  TickType_t last_wake_time = xTaskGetTickCount();
+  
   while (this->streaming_active_) {
+    // Vérifier les commandes de contrôle
     if (xQueueReceive(this->control_queue_, &control_cmd, 0) == pdTRUE) {
       if (control_cmd == TASK_CONTROL_EXIT) {
+        ESP_LOGI(TAG, "Received exit command");
         break;
       }
     }
 
-    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    buf.memory = V4L2_MEMORY_MMAP;
-
-    if (ioctl(this->camera_->fd, VIDIOC_DQBUF, &buf) == 0) {
-      this->on_frame_callbacks_.call(this->camera_->buffer[buf.index], buf.bytesused);
-      ioctl(this->camera_->fd, VIDIOC_QBUF, &buf);
+    // Capturer une frame
+    camera_fb_t* fb = esp_camera_fb_get();
+    if (fb) {
+      // Protéger l'accès au buffer
+      if (xSemaphoreTake(this->frame_mutex_, pdMS_TO_TICKS(10)) == pdTRUE) {
+        this->current_frame_buffer_ = fb->buf;
+        this->current_frame_size_ = fb->len;
+        
+        // Appeler les callbacks
+        this->on_frame_callbacks_.call(fb->buf, fb->len);
+        
+        xSemaphoreGive(this->frame_mutex_);
+      }
+      
+      // Libérer le frame buffer
+      esp_camera_fb_return(fb);
+    } else {
+      ESP_LOGW(TAG, "Camera capture failed in streaming");
     }
 
-    vTaskDelay(pdMS_TO_TICKS(33));
+    // Respecter le taux de frames
+    vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(STREAM_FRAME_RATE_MS));
   }
 
-  ioctl(this->camera_->fd, VIDIOC_STREAMOFF, &stream_type);
+  ESP_LOGI(TAG, "Camera streaming loop ended");
 }
 
 void Tab5Camera::cleanup_resources_() {
@@ -345,29 +300,9 @@ void Tab5Camera::cleanup_resources_() {
     this->stop_streaming();
   }
 
-  if (this->ppa_handle_) {
-    ppa_unregister_client(this->ppa_handle_);
-    this->ppa_handle_ = nullptr;
-  }
-
-  if (this->camera_) {
-    for (size_t i = 0; i < BUFFER_COUNT; i++) {
-      if (this->camera_->buffer[i] && this->camera_->buffer[i] != MAP_FAILED) {
-        munmap(this->camera_->buffer[i], this->camera_->buffer_size);
-      }
-    }
-
-    if (this->camera_->fd >= 0) {
-      close(this->camera_->fd);
-    }
-
-    free(this->camera_);
-    this->camera_ = nullptr;
-  }
-
-  if (this->i2c_bus_handle_) {
-    i2c_del_master_bus(this->i2c_bus_handle_);
-    this->i2c_bus_handle_ = nullptr;
+  if (this->camera_initialized_) {
+    esp_camera_deinit();
+    this->camera_initialized_ = false;
   }
 
   if (this->control_queue_) {
@@ -375,7 +310,13 @@ void Tab5Camera::cleanup_resources_() {
     this->control_queue_ = nullptr;
   }
 
-  this->camera_initialized_ = false;
+  if (this->frame_mutex_) {
+    vSemaphoreDelete(this->frame_mutex_);
+    this->frame_mutex_ = nullptr;
+  }
+
+  this->current_frame_buffer_ = nullptr;
+  this->current_frame_size_ = 0;
 }
 
 void Tab5Camera::set_error_(const std::string &error) {
@@ -391,8 +332,15 @@ void Tab5Camera::clear_error_() {
 
 void Tab5Camera::dump_config() {
   ESP_LOGCONFIG(TAG, "Tab5 Camera:");
-  ESP_LOGCONFIG(TAG, "  Resolution: %dx%d", this->frame_width_, this->frame_height_);
+  ESP_LOGCONFIG(TAG, "  Name: %s", this->name_.c_str());
+  ESP_LOGCONFIG(TAG, "  Frame Size: %d", this->framesize_);
+  ESP_LOGCONFIG(TAG, "  Pixel Format: %d", this->pixel_format_);
+  ESP_LOGCONFIG(TAG, "  JPEG Quality: %d", this->jpeg_quality_);
+  ESP_LOGCONFIG(TAG, "  Vertical Flip: %s", this->vertical_flip_ ? "YES" : "NO");
+  ESP_LOGCONFIG(TAG, "  Horizontal Mirror: %s", this->horizontal_mirror_ ? "YES" : "NO");
   ESP_LOGCONFIG(TAG, "  Status: %s", this->camera_initialized_ ? "Initialized" : "Not initialized");
+  ESP_LOGCONFIG(TAG, "  Streaming: %s", this->streaming_active_ ? "Active" : "Inactive");
+  
   if (this->has_error()) {
     ESP_LOGCONFIG(TAG, "  Error: %s", this->get_last_error().c_str());
   }
