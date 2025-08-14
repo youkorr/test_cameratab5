@@ -1,14 +1,10 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import i2c
-from esphome.const import (
-    CONF_ID,
-    CONF_NAME,
-    CONF_RESOLUTION,
-)
+from esphome.const import CONF_ID, CONF_NAME, CONF_RESOLUTION
 from esphome import pins
 
-# Définir les constantes manquantes
+# Définir TOUTES les constantes nécessaires localement
 CONF_VERTICAL_FLIP = "vertical_flip"
 CONF_HORIZONTAL_MIRROR = "horizontal_mirror"
 CONF_PIXEL_FORMAT = "pixel_format"
@@ -24,7 +20,7 @@ DEPENDENCIES = ["i2c"]
 tab5_camera_ns = cg.esphome_ns.namespace("tab5_camera")
 Tab5Camera = tab5_camera_ns.class_("Tab5Camera", cg.Component, i2c.I2CDevice)
 
-# Enums pour les formats de pixels
+# Supprimer complètement l'import problématique et utiliser uniquement les constantes locales
 tab5_pixformat_t = tab5_camera_ns.enum("tab5_pixformat_t")
 PIXEL_FORMATS = {
     "RGB565": tab5_pixformat_t.TAB5_PIXFORMAT_RGB565,
@@ -36,7 +32,6 @@ PIXEL_FORMATS = {
     "RAW10": tab5_pixformat_t.TAB5_PIXFORMAT_RAW10,
 }
 
-# Enums pour les résolutions
 tab5_framesize_t = tab5_camera_ns.enum("tab5_framesize_t")
 FRAMESIZES = {
     "QVGA": tab5_framesize_t.TAB5_FRAMESIZE_QVGA,
@@ -57,7 +52,7 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_BRIGHTNESS, default=0): cv.int_range(min=-2, max=2),
     cv.Optional(CONF_CONTRAST, default=0): cv.int_range(min=-2, max=2),
     cv.Optional(CONF_SATURATION, default=0): cv.int_range(min=-2, max=2),
-}).extend(cv.COMPONENT_SCHEMA).extend(i2c.i2c_device_schema(0x43))  # Adresse PI4IOE par défaut
+}).extend(cv.COMPONENT_SCHEMA).extend(i2c.i2c_device_schema(0x43))
 
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
@@ -74,7 +69,6 @@ async def to_code(config):
         pin = await cg.gpio_pin_expression(config[CONF_CAMERA_RESET_PIN])
         cg.add(var.set_camera_reset_pin(pin))
     
-    # Ajouter les includes nécessaires
     cg.add_library("esp_video_init", None)
     cg.add_library("driver/ppa", None)
 
