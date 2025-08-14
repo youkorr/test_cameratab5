@@ -15,46 +15,52 @@
 #include "esp_system.h"
 #include "esp_heap_caps.h"
 
-// Includes pour ESP32 Camera (pas V4L2)
-#include "esp_camera.h"
+// Includes pour Tab5 V4L2 et BSP
+#include "bsp/esp-bsp.h"
+#include "esp_video_init.h"
+#include "esp_video_device.h"
+#include "linux/videodev2.h"
+#include "driver/ppa.h"
+
+// Includes système nécessaires pour V4L2
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <sys/param.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 
-
-
 namespace esphome {
 namespace tab5_camera {
 
-// Formats d'image supportés par le Tab5
+// Formats d'image supportés par le Tab5 (basé sur V4L2)
 typedef enum {
-    TAB5_PIXFORMAT_RGB565,    // 2BPP/RGB565
-    TAB5_PIXFORMAT_YUV422,    // 2BPP/YUV422
-    TAB5_PIXFORMAT_GRAYSCALE, // 1BPP/GRAYSCALE
-    TAB5_PIXFORMAT_JPEG,      // JPEG/Compressed
-    TAB5_PIXFORMAT_RGB888,    // 3BPP/RGB888
-    TAB5_PIXFORMAT_RAW,       // RAW
+    TAB5_PIXFORMAT_RGB565 = V4L2_PIX_FMT_RGB565,
+    TAB5_PIXFORMAT_RGB888 = V4L2_PIX_FMT_RGB24,
+    TAB5_PIXFORMAT_YUV422 = V4L2_PIX_FMT_YUV422P,
+    TAB5_PIXFORMAT_YUV420 = V4L2_PIX_FMT_YUV420,
+    TAB5_PIXFORMAT_GRAYSCALE = V4L2_PIX_FMT_GREY,
+    TAB5_PIXFORMAT_RAW8 = V4L2_PIX_FMT_SBGGR8,
+    TAB5_PIXFORMAT_RAW10 = V4L2_PIX_FMT_SBGGR10,
 } tab5_pixformat_t;
 
-// Tailles de frame supportées
+// Tailles de frame supportées par le Tab5
 typedef enum {
-    TAB5_FRAMESIZE_96X96,    // 96x96
-    TAB5_FRAMESIZE_QQVGA,    // 160x120
-    TAB5_FRAMESIZE_QCIF,     // 176x144
-    TAB5_FRAMESIZE_HQVGA,    // 240x176
-    TAB5_FRAMESIZE_240X240,  // 240x240
     TAB5_FRAMESIZE_QVGA,     // 320x240
-    TAB5_FRAMESIZE_CIF,      // 400x296
-    TAB5_FRAMESIZE_HVGA,     // 480x320
     TAB5_FRAMESIZE_VGA,      // 640x480
-    TAB5_FRAMESIZE_SVGA,     // 800x600
-    TAB5_FRAMESIZE_XGA,      // 1024x768
     TAB5_FRAMESIZE_HD,       // 1280x720
-    TAB5_FRAMESIZE_SXGA,     // 1280x1024
-    TAB5_FRAMESIZE_UXGA,     // 1600x1200
+    TAB5_FRAMESIZE_FULL_HD,  // 1920x1080
 } tab5_framesize_t;
+
+struct tab5_camera_config_t {
+    uint32_t width;
+    uint32_t height;
+    uint32_t pixel_format;
+    uint8_t buffer_count;
+};
 
 class Tab5Camera : public Component, public i2c::I2CDevice {
  public:
@@ -67,15 +73,11 @@ class Tab5Camera : public Component, public i2c::I2CDevice {
 
   // Configuration
   void set_name(const std::string &name) { this->name_ = name; }
-  void set_sensor_address(uint8_t address) { this->set_i2c_address(address); }
   void set_resolution(tab5_framesize_t framesize) { this->framesize_ = framesize; }
   void set_pixel_format(tab5_pixformat_t format) { this->pixel_format_ = format; }
-  void set_jpeg_quality(uint8_t quality) { this->jpeg_quality_ = std::clamp((int)quality, 10, 100); }
   void set_vertical_flip(bool flip) { this->vertical_flip_ = flip; }
   void set_horizontal_mirror(bool mirror) { this->horizontal_mirror_ = mirror; }
-  void set_brightness(int brightness) { this->brightness_ = std::clamp(brightness, -2, 2); }
-  void set_contrast(int contrast) { this->contrast_ = std::clamp(contrast, -2, 2); }
-  void set_saturation(int saturation) { this->saturation_ = std::clamp(saturation, -2, 2); }
+  void set_camera_reset_pin(GPIOPin *pin) { this->reset_pin_ = pin; }
   
   // Fonctions principales
   bool take_snapshot();
@@ -103,6 +105,8 @@ class Tab5Camera : public Component, public i2c::I2CDevice {
   bool init_camera_();
   bool configure_camera_();
   void cleanup_resources_();
+  int open_video_device_(tab5_pixformat_t format);
+  bool setup_camera_buffers_();
   
   static void streaming_task_(void *parameter);
   void streaming_loop_();
@@ -110,6 +114,8 @@ class Tab5Camera : public Component, public i2c::I2CDevice {
   bool camera_initialized_{false};
   bool streaming_active_{false};
   
+  int video_fd_{-1};
+  uint8_t* frame_buffers_[2]{nullptr, nullptr};  // Double buffer
   uint8_t* current_frame_buffer_{nullptr};
   size_t current_frame_size_{0};
   
@@ -117,20 +123,22 @@ class Tab5Camera : public Component, public i2c::I2CDevice {
   QueueHandle_t control_queue_{nullptr};
   SemaphoreHandle_t frame_mutex_{nullptr};
   
+  // Configuration PPA pour rotation/scaling
+  ppa_client_handle_t ppa_handle_{nullptr};
+  
   static constexpr uint32_t STREAM_TASK_STACK_SIZE = 8192;
   static constexpr uint32_t STREAM_TASK_PRIORITY = 5;
   static constexpr uint32_t STREAM_FRAME_RATE_MS = 33; // ~30 FPS
+  static constexpr uint8_t BUFFER_COUNT = 2;
 
  private:
   std::string name_{"Tab5 Camera"};
-  tab5_framesize_t framesize_{TAB5_FRAMESIZE_VGA};
-  tab5_pixformat_t pixel_format_{TAB5_PIXFORMAT_JPEG};
-  uint8_t jpeg_quality_{12};
+  tab5_framesize_t framesize_{TAB5_FRAMESIZE_HD};
+  tab5_pixformat_t pixel_format_{TAB5_PIXFORMAT_RGB565};
   bool vertical_flip_{false};
-  bool horizontal_mirror_{false};
-  int brightness_{0};
-  int contrast_{0};
-  int saturation_{0};
+  bool horizontal_mirror_{true};  // Tab5 utilise mirror_x par défaut
+  
+  GPIOPin *reset_pin_{nullptr};
   
   bool error_state_{false};
   std::string last_error_{""};
@@ -140,9 +148,8 @@ class Tab5Camera : public Component, public i2c::I2CDevice {
   CallbackManager<void(uint8_t*, size_t)> on_frame_callbacks_;
   
   // Fonctions utilitaires
-  camera_config_t get_camera_config_();
-  framesize_t convert_framesize_(tab5_framesize_t framesize);
-  pixformat_t convert_pixel_format_(tab5_pixformat_t format);
+  tab5_camera_config_t get_camera_config_();
+  void get_frame_dimensions_(uint32_t *width, uint32_t *height);
 };
 
 }  // namespace tab5_camera
