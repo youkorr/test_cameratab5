@@ -15,16 +15,16 @@
 #include "esp_system.h"
 #include "esp_heap_caps.h"
 
-// Includes pour Tab5 BSP
-extern "C" {
-#include <bsp/m5stack_tab5.h>
-#include <esp_camera.h>
-}
+// Includes pour ESP32 Camera (pas V4L2)
+#include "esp_camera.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
+
+// Remplacer l'include V4L2 par les définitions ESP32
+// #include <sys/mman.h>  // <- Cette ligne causait l'erreur
 
 namespace esphome {
 namespace tab5_camera {
