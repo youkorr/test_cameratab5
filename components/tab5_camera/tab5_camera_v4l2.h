@@ -3,12 +3,9 @@
 #include "esphome/core/component.h"
 #include "esphome/core/gpio.h"
 #include "esphome/components/i2c/i2c.h"
+#include "esphome/core/helpers.h"
 
-#ifndef TAB5_CAMERA_USE_ESP32
-#define TAB5_CAMERA_USE_ESP32 1
-#endif
-
-#ifdef TAB5_CAMERA_USE_ESP32
+#ifdef USE_ESP32
 
 #include "esp_log.h"
 #include "esp_err.h"
@@ -16,17 +13,26 @@
 #include "esp_heap_caps.h"
 
 // Includes pour Tab5 V4L2 et BSP
+extern "C" {
 #include "bsp/esp-bsp.h"
 #include "esp_video_init.h"
-#include "esp_video_device.h"
-#include "linux/videodev2.h"
 #include "driver/ppa.h"
 
-// Includes système nécessaires pour V4L2
-//#include <fcntl.h>
-//#include <sys/ioctl.h>
-//#include "sys/mman.h"
-//#include <sys/param.h>
+// V4L2 includes avec protection
+#ifndef __KERNEL__
+#define __KERNEL__
+#include "linux/videodev2.h"
+#undef __KERNEL__
+#else
+#include "linux/videodev2.h"
+#endif
+
+// Includes système
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <unistd.h>
+}
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -65,7 +71,7 @@ struct tab5_camera_config_t {
 class Tab5Camera : public Component, public i2c::I2CDevice {
  public:
   Tab5Camera() = default;
-  ~Tab5Camera();
+  ~Tab5Camera() override;
 
   void setup() override;
   void dump_config() override;
@@ -115,9 +121,10 @@ class Tab5Camera : public Component, public i2c::I2CDevice {
   bool streaming_active_{false};
   
   int video_fd_{-1};
-  uint8_t* frame_buffers_[2]{nullptr, nullptr};  // Double buffer
+  uint8_t* frame_buffers_[3]{nullptr, nullptr, nullptr};  // Triple buffer pour Tab5
   uint8_t* current_frame_buffer_{nullptr};
   size_t current_frame_size_{0};
+  size_t buffer_size_{0};
   
   TaskHandle_t streaming_task_handle_{nullptr};
   QueueHandle_t control_queue_{nullptr};
@@ -129,7 +136,7 @@ class Tab5Camera : public Component, public i2c::I2CDevice {
   static constexpr uint32_t STREAM_TASK_STACK_SIZE = 8192;
   static constexpr uint32_t STREAM_TASK_PRIORITY = 5;
   static constexpr uint32_t STREAM_FRAME_RATE_MS = 33; // ~30 FPS
-  static constexpr uint8_t BUFFER_COUNT = 2;
+  static constexpr uint8_t BUFFER_COUNT = 3;
 
  private:
   std::string name_{"Tab5 Camera"};
@@ -150,12 +157,16 @@ class Tab5Camera : public Component, public i2c::I2CDevice {
   // Fonctions utilitaires
   tab5_camera_config_t get_camera_config_();
   void get_frame_dimensions_(uint32_t *width, uint32_t *height);
+  
+  // Intégration BSP Tab5
+  bool init_tab5_bsp_();
+  bool reset_camera_via_io_expander_();
 };
 
 }  // namespace tab5_camera
 }  // namespace esphome
 
-#endif  // TAB5_CAMERA_USE_ESP32
+#endif  // USE_ESP32
 
 
 
